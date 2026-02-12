@@ -23,9 +23,13 @@ export default function MidiPlayer({ midiUrl }: MidiPlayerProps) {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   
-  const [playbackRate, setPlaybackRate] = useState(1.0);
-  const [instrument, setInstrument] = useState<'piano' | 'organ' | 'choir'>('piano');
+  const [instrument, setInstrument] = useState<'piano' | 'organ' | 'choir'>('organ');
   
+  // Advanced features state
+  const [transpose, setTranspose] = useState(0); // Semitones
+  const [isMetronomeOn, setIsMetronomeOn] = useState(false);
+  const [metronomeSound, setMetronomeSound] = useState<'click' | 'woodblock' | 'beep'>('click');
+
   // Track state
   const [tracks, setTracks] = useState<TrackControl[]>([]);
 
@@ -34,12 +38,151 @@ export default function MidiPlayer({ midiUrl }: MidiPlayerProps) {
   const synths = useRef<(Tone.Sampler | Tone.PolySynth)[]>([]);
   const parts = useRef<Tone.Part[]>([]);
   const transportSchedule = useRef<number | null>(null);
+  
+  // Metronome refs
+  const metronomePlayer = useRef<Tone.MembraneSynth | Tone.MetalSynth | Tone.Synth | null>(null);
+  const metronomeLoop = useRef<Tone.Loop | null>(null);
+
+  // Initialize Metronome Synth
+  useEffect(() => {
+    if (metronomeSound === 'woodblock') {
+         metronomePlayer.current = new Tone.MetalSynth({
+            frequency: 200,
+            envelope: { attack: 0.001, decay: 0.1, release: 0.01 },
+            harmonicity: 5.1,
+            modulationIndex: 32,
+            resonance: 4000,
+            octaves: 1.5,
+            volume: -12
+        }).toDestination();
+    } else if (metronomeSound === 'beep') {
+        metronomePlayer.current = new Tone.Synth({
+            oscillator: { type: "sine" },
+            envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 },
+            volume: -10
+        }).toDestination();
+    } else {
+        // Default Click
+        metronomePlayer.current = new Tone.MembraneSynth({
+            pitchDecay: 0.05,
+            octaves: 4,
+            oscillator: { type: "sine" },
+            envelope: { attack: 0.001, decay: 0.2, sustain: 0.01, release: 0.5 },
+            volume: -10
+        }).toDestination();
+    }
+
+    return () => {
+        metronomePlayer.current?.dispose();
+    };
+  }, [metronomeSound]);
+
+  // Handle Metronome Toggle
+  useEffect(() => {
+    if (isMetronomeOn) {
+        if (!metronomeLoop.current) {
+            metronomeLoop.current = new Tone.Loop((time) => {
+                const note = metronomeSound === 'beep' ? "C6" : metronomeSound === 'woodblock' ? "200" : "C5";
+                metronomePlayer.current?.triggerAttackRelease(note, "32n", time);
+            }, "4n").start(0);
+        }
+    } else {
+        if (metronomeLoop.current) {
+            metronomeLoop.current.stop();
+            metronomeLoop.current.dispose();
+            metronomeLoop.current = null;
+        }
+    }
+    
+    return () => {
+        if (metronomeLoop.current) {
+            metronomeLoop.current.dispose();
+            metronomeLoop.current = null;
+        }
+    };
+  }, [isMetronomeOn, metronomeSound]);
+
+
+  const createSynth = (inst: string): Tone.Sampler | Tone.PolySynth => {
+      const pianoSamples = {
+          'C4': 'C4.mp3',
+          'D#4': 'Ds4.mp3',
+          'F#4': 'Fs4.mp3',
+          'A4': 'A4.mp3',
+      };
+      const baseUrl = "https://tonejs.github.io/audio/salamander/";
+      
+      const detuneValue = transpose * 100;
+
+      if (inst === 'piano') {
+          const s = new Tone.Sampler({
+            urls: pianoSamples,
+            baseUrl: baseUrl,
+            volume: -5,
+          }).toDestination();
+          return s;
+      } else if (inst === 'organ') {
+          const s = new Tone.PolySynth(Tone.Synth, {
+              oscillator: { type: 'fatsawtooth', count: 3, spread: 30 },
+              envelope: { attack: 0.1, decay: 0.3, sustain: 1, release: 1.2 },
+              volume: -8,
+              detune: detuneValue
+          }).toDestination();
+          return s;
+      } else { // choir
+          const s = new Tone.PolySynth(Tone.Synth, {
+              oscillator: { type: 'fatcustom', partials: [0.2, 1, 0, 0.5, 0.1], spread: 40, count: 3 },
+              envelope: { attack: 0.5, decay: 0.5, sustain: 1, release: 1.5 },
+              volume: -10,
+              detune: detuneValue
+          }).toDestination();
+          return s;
+      }
+  };
 
   // Speed scaling effect
   useEffect(() => {
      // Triggering a reload of parts/midi when rate changes is necessary for accurate duration/scheduling
      // This is handled by the dependency in the main loadMidi effect
   }, [playbackRate]);
+
+  // Transposition Effect
+  useEffect(() => {
+      const detuneValue = transpose * 100;
+      synths.current.forEach(synth => {
+          try {
+            // Apply to all
+            synth.set({ detune: detuneValue });
+          } catch (e) { console.warn("Could not detune synth", e); }
+      });
+  }, [transpose]);
+
+  // Instrument Change Effect (No reload)
+  useEffect(() => {
+    if (!isReady || synths.current.length === 0) return;
+
+    // Swap synths for each track
+    const newSynths = synths.current.map((oldSynth, index) => {
+        const newSynth = createSynth(instrument);
+        // Apply current transposition immediately
+        newSynth.set({ detune: transpose * 100 });
+        
+        // Preserve mute/volume state
+        if (tracks[index]?.isMuted) {
+             newSynth.volume.value = -Infinity;
+        }
+
+        // Dispose old
+        oldSynth.dispose();
+        return newSynth;
+    });
+
+    synths.current = newSynths;
+    
+    // Update tracks state to reflect new instrument name (visual only)
+    setTracks(prev => prev.map(t => ({ ...t, instrument })));
+
+  }, [instrument]);
 
   useEffect(() => {
     // Initial setup
@@ -60,58 +203,11 @@ export default function MidiPlayer({ midiUrl }: MidiPlayerProps) {
         // Setup tracks
         const newTrackControls: TrackControl[] = [];
         
-        // Prepare Instrument Configuration
-        const pianoSamples = {
-            'C4': 'C4.mp3',
-            'D#4': 'Ds4.mp3',
-            'F#4': 'Fs4.mp3',
-            'A4': 'A4.mp3',
-        };
-        const baseUrl = "https://tonejs.github.io/audio/salamander/";
-
         await Promise.all(midi.tracks.map(async (track, index) => {
-          let synth: Tone.Sampler | Tone.PolySynth;
-
-          if (instrument === 'piano') {
-              synth = new Tone.Sampler({
-                urls: pianoSamples,
-                baseUrl: baseUrl,
-                volume: -5, // Piano samples can be loud
-              }).toDestination();
-          } else if (instrument === 'organ') {
-              synth = new Tone.PolySynth(Tone.Synth, {
-                  oscillator: {
-                      type: 'fatsawtooth',
-                      count: 3,
-                      spread: 30
-                  },
-                  envelope: {
-                      attack: 0.1,
-                      decay: 0.3,
-                      sustain: 1,
-                      release: 1.2
-                  },
-                  volume: -8
-              }).toDestination();
-          } else { // choir
-              synth = new Tone.PolySynth(Tone.Synth, {
-                  oscillator: {
-                      type: 'fatcustom',
-                      partials: [0.2, 1, 0, 0.5, 0.1],
-                      spread: 40,
-                      count: 3
-                  },
-                  envelope: {
-                      attack: 0.5,
-                      decay: 0.5,
-                      sustain: 1,
-                      release: 1.5
-                  },
-                  volume: -10
-              }).toDestination();
-                // Add some reverb/chkrus for choir if possible? keeping simple for now to avoid CPU load
-          }
-          
+          // Initial synth creation using current instrument
+          // Note: We use the REF value for instrument to avoid dependency issues if we wanted, 
+          // but here we just use the initial state 'instrument' is fine as this runs on mount/url change
+          const synth = createSynth(instrument);
           synths.current.push(synth);
 
           // Create part
@@ -123,8 +219,11 @@ export default function MidiPlayer({ midiUrl }: MidiPlayerProps) {
           }));
 
           const part = new Tone.Part((time, value) => {
-            if (!synth.disposed) {
-                synth.triggerAttackRelease(value.note, value.duration, time, value.velocity);
+            // CRITICAL CHANGE: Look up the synth dynamically from the ref
+            // This allows us to swap the synth instance in synths.current without recreating the Part
+            const currentSynth = synths.current[index];
+            if (currentSynth && !currentSynth.disposed) {
+                currentSynth.triggerAttackRelease(value.note, value.duration, time, value.velocity);
             }
           }, notes).start(0);
 
@@ -192,7 +291,7 @@ export default function MidiPlayer({ midiUrl }: MidiPlayerProps) {
             Tone.Transport.clear(transportSchedule.current);
         }
     };
-  }, [midiUrl, playbackRate, instrument]); 
+  }, [midiUrl, playbackRate]); // REMOVED instrument dependency 
 
   const releaseAllNotes = () => {
     synths.current.forEach(synth => {
@@ -305,7 +404,7 @@ export default function MidiPlayer({ midiUrl }: MidiPlayerProps) {
             {/* Settings (Speed & Instrument) */}
             <div className="flex flex-wrap items-center gap-4 bg-white dark:bg-gray-800 p-2 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm">
                  
-                 {/* Instrument Selector */}
+                  {/* Instrument Selector */}
                  <div className="flex items-center gap-2 px-2 border-r border-gray-100 dark:border-gray-700 pr-4">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Inst:</span>
                     <select 
@@ -317,6 +416,62 @@ export default function MidiPlayer({ midiUrl }: MidiPlayerProps) {
                         <option value="organ">Organ (Pipe)</option>
                         <option value="choir">Choir (Synth)</option>
                     </select>
+                 </div>
+
+                 {/* Transposition Controls */}
+                 <div className="flex items-center gap-2 px-2 border-r border-gray-100 dark:border-gray-700 pr-4">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Key:</span>
+                    <div className="flex items-center gap-1">
+                        <button 
+                            onClick={() => setTranspose(prev => prev - 1)}
+                            className="w-6 h-6 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-xs font-bold"
+                            title="Transpose Down"
+                        >
+                            -
+                        </button>
+                        <span className="text-sm font-bold min-w-[1.5rem] text-center">
+                            {transpose > 0 ? `+${transpose}` : transpose}
+                        </span>
+                        <button 
+                            onClick={() => setTranspose(prev => prev + 1)}
+                            className="w-6 h-6 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-xs font-bold"
+                            title="Transpose Up"
+                        >
+                            +
+                        </button>
+                    </div>
+                 </div>
+
+                 {/* Metronome Toggle */}
+                 <div className="flex items-center gap-2 px-2 border-r border-gray-100 dark:border-gray-700 pr-4">
+                    <button 
+                        onClick={() => setIsMetronomeOn(!isMetronomeOn)}
+                        className={clsx(
+                            "flex items-center gap-2 px-2 py-1 rounded text-xs font-bold uppercase tracking-wider transition-colors",
+                            isMetronomeOn 
+                                ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/20" 
+                                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        )}
+                        title="Toggle Metronome"
+                    >
+                        <div className={clsx("w-2 h-2 rounded-full", isMetronomeOn ? "bg-blue-500 animate-pulse" : "bg-slate-300")}></div>
+                        Metro
+                    </button>
+                    
+                    {/* Metronome Sound Selector */}
+                    {isMetronomeOn && (
+                       <select 
+                        value={metronomeSound}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setMetronomeSound(e.target.value as any)}
+                        className="bg-transparent text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 outline-none cursor-pointer w-16"
+                        title="Metronome Sound"
+                        >
+                            <option value="click">Click</option>
+                            <option value="woodblock">Wood</option>
+                            <option value="beep">Beep</option>
+                        </select>
+                    )}
                  </div>
 
                  {/* Speed Selector */}

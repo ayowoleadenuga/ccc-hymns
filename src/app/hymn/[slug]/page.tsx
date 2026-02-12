@@ -25,7 +25,7 @@ const getCategoryName = (hymn: any): string | null => {
 export default async function HymnDetail(props: PageProps) {
   const params = await props.params;
   const hymn = await getHymnBySlug(params.slug);
-
+console.log({hymn});
   if (!hymn) {
     notFound();
   }

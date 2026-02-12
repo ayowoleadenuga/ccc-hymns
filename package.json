@@ -23,6 +23,7 @@
     "opensheetmusicdisplay": "^1.9.5",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "tone": "^15.1.22"
   },
