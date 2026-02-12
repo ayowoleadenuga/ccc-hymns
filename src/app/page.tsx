@@ -40,9 +40,8 @@ export default async function Home(props: HomeProps) {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-            <Link href="/" className="contents">
-                <div className="flex items-center gap-3">
-                    <div className="relative w-12 h-12 flex-shrink-0">
+            <Link href="/" className="flex items-center gap-3">
+                    <div className="relative w-20 h-20 flex-shrink-0">
                         <Image 
                             src="/logo.png" 
                             alt="CCC Logo" 
@@ -52,7 +51,6 @@ export default async function Home(props: HomeProps) {
                         />
                     </div>
                     <h1 className="text-xl font-bold tracking-tight text-blue-900 dark:text-blue-100 hidden sm:block">CCC Hymns</h1>
-                </div>
             </Link>
           <ThemeToggle />
         </div>

@@ -41,7 +41,7 @@ export default async function HymnDetail(props: PageProps) {
         <div className="max-w-5xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-3">
             <Link href="/" className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-300 transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-                <div className="relative w-8 h-8">
+                <div className="relative w-12 h-12">
                      <Image 
                         src="/logo.png" 
                         alt="CCC Logo" 

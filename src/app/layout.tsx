@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
-const geistSans = Geist({
+const geistSans = Inter({
   variable: "--font-geist-sans",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
+const geistMono = Roboto_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
@@ -17,9 +17,6 @@ export const metadata: Metadata = {
   title: "CCC Hymns",
   description: "Celestial Church of Christ Hymns - Worship in Truth & Spirit",
   manifest: "/manifest.json",
-  icons: {
-    icon: "/favicon.ico",
-  }
 };
 
 export default function RootLayout({
